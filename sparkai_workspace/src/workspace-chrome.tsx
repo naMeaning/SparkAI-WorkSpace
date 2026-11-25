@@ -12,7 +12,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Save,
   Settings,
   Trash2,
   WandSparkles,
@@ -342,13 +341,11 @@ export function WorkspaceAssetRail({
   selectedNodeId,
   requirementTemplates = [],
   requirementTemplatesLoading = false,
-  canSaveRequirementTemplate = false,
   onSelectNode,
   onOpenLayer,
   onSelectConversation,
   onLoadRequirementTemplates,
   onUseRequirementTemplate,
-  onSaveRequirementTemplate,
   onDeleteRequirementTemplate,
   onImport,
   onOpenSettings,
@@ -363,13 +360,11 @@ export function WorkspaceAssetRail({
   selectedNodeId: string;
   requirementTemplates?: WorkspaceRequirementTemplate[];
   requirementTemplatesLoading?: boolean;
-  canSaveRequirementTemplate?: boolean;
   onSelectNode: (nodeId: string) => void;
   onOpenLayer?: (nodeId: string) => void;
   onSelectConversation: (conversationId: string) => void;
   onLoadRequirementTemplates?: (force?: boolean) => void;
   onUseRequirementTemplate?: (templateId: string, options?: RequirementTemplateUseOptions) => Promise<unknown>;
-  onSaveRequirementTemplate?: () => void;
   onDeleteRequirementTemplate?: (templateId: string) => void;
   onImport: () => void;
   onOpenSettings: () => void;
@@ -390,13 +385,16 @@ export function WorkspaceAssetRail({
   const assetGroupPreviewTimerRef = useRef<number | null>(null);
   const loadRequirementTemplatesRef = useRef(onLoadRequirementTemplates);
   loadRequirementTemplatesRef.current = onLoadRequirementTemplates;
+  const hasRequirements = nodes.some(node => node.type === "requirement");
   const visibleRailTabs = useMemo(() => {
     const visible = new Set(visibleTabs);
-    if (requestedTab?.tab === "templates") visible.add("templates");
+    if (!hasRequirements) visible.delete("requirements");
+    if (requestedTab?.tab !== "templates") visible.delete("templates");
+    else visible.add("templates");
     const filtered = railTabs.filter((item) => visible.has(item.id));
     // History now lives in Agent. Legacy history-only rail preferences keep results accessible.
     return filtered.length ? filtered : railTabs.slice(0, 1);
-  }, [visibleTabs, requestedTab?.tab]);
+  }, [visibleTabs, requestedTab?.tab, hasRequirements]);
   const tab = visibleRailTabs.some((item) => item.id === selectedTab)
     ? selectedTab
     : visibleRailTabs[0].id;
@@ -571,23 +569,7 @@ export function WorkspaceAssetRail({
             <Layers3 size={16} />
           </div>
         ) : null}
-        {tab === "templates" ? (
-          <div
-            className="workspace-asset-rail-note"
-            role="note"
-            tabIndex={0}
-            aria-label={canSaveRequirementTemplate ? "可以保存当前方法" : "模板保存说明"}
-            data-ui-tooltip={canSaveRequirementTemplate
-              ? "保存选中的需求或当前成功任务的方法；使用模板时重新选择本项目素材。"
-              : "先选择需求或完成一次创作任务，再保存模板；已有模板可编辑变量并跨项目复用。"}
-          >
-            <BookMarked size={16} />
-          </div>
-        ) : null}
         {tab === "templates" ? <>
-          <IconActionButton label="保存当前需求到模板库" icon={<Save size={16} />} className="workspace-asset-rail-template-import"
-            onClick={onSaveRequirementTemplate} disabled={!canSaveRequirementTemplate}
-            title={canSaveRequirementTemplate ? "保存选中的需求，或保存当前成功任务的方法" : "请选择需求节点，或完成并保存一次创作任务"} />
           <IconActionButton label="导入创作模板" icon={templateImportBusy ? <Loader2 className="spin" size={16} /> : <Import size={16} />}
             className="workspace-asset-rail-template-import" title="从本机文件导入可复用创作模板" disabled={templateImportBusy} onClick={() => { void importTemplate(); }} />
           {templateActionError ? <p className="workspace-asset-rail-template-error" role="alert" title={templateActionError}>{templateActionError}</p> : null}
@@ -638,7 +620,7 @@ export function WorkspaceAssetRail({
             );
           }) : (
             <div className="workspace-asset-rail-empty is-explained" role="note" tabIndex={0} aria-label="暂无模板"
-              data-ui-tooltip="暂无模板。选择需求或完成创作任务后保存模板，也可以导入模板文件；使用模板只插入需求。">
+              data-ui-tooltip="旧模板库为空。可以导入旧模板文件。">
               <BookMarked size={16} />
             </div>
           )

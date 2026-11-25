@@ -180,8 +180,10 @@ try {
     if (!exe) await ev("window.naimageConfig.debugWindowBounds({width:884,height:640})");
     else await ev("window.resizeTo(884,640); undefined");
     await delay(200);
-    await wait("Boolean(document.querySelector('[data-creation-session]'))");
-    await ev("document.querySelector('[data-creation-session]').open=true"); await screenshot("requirements-minimum");
+    await wait("Boolean(document.querySelector('[aria-controls=agent-creation-details]'))");
+    await click(client, '[aria-controls="agent-creation-details"]');
+    await wait("Boolean(document.querySelector('#agent-creation-details [data-creation-session]'))");
+    await screenshot("requirements-minimum");
     const bounds = await ev("({width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth})");
     assert.equal(bounds.width, 884); assert.equal(bounds.height, 640); assert.equal(bounds.overflow, false);
   });
@@ -298,8 +300,11 @@ try {
     await screenshot('region-result-saved');
   });
   await check("detached mutation, reload and normal restart share authoritative decisions and three new versions without execution", async () => {
-    await client.send("Page.reload"); await wait("Boolean(document.querySelector('[data-creation-session]'))");
-    await click(client, '[aria-label="调整对话框位置"]');
+    await ev("window.__creationReloadGuard = true; true");
+    await client.send("Page.reload");
+    await wait("!window.__creationReloadGuard && Boolean(document.querySelector('[aria-controls=agent-creation-details]')) && Boolean(document.querySelector('[aria-label=\"更多 Agent 操作\"]'))");
+    await click(client, '[aria-label="更多 Agent 操作"]');
+    await wait("Boolean(document.querySelector('.agent-placement-menu button'))");
     await ev("[...document.querySelectorAll('.agent-placement-menu button')].find(b=>b.textContent.includes('独立浮动窗口')).click()");
     const target = await pollForDebugTarget({ port: debugPort, attempts: 100, intervalMs: 100, findTarget: list => list.find(item => item.type === "page" && /agent-window\.html/.test(item.url)) });
     agentClient = new BasicCdpClient(target.webSocketDebuggerUrl); await agentClient.open(); await agentClient.send("Runtime.enable"); await agentClient.send("Page.enable");

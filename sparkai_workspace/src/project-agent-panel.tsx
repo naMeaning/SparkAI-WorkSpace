@@ -1,6 +1,4 @@
 import { agentProviderLabel, agentProviderNetworkLabel } from "./agent-provider-state";
-import ProjectContextPanel from "./project-context-panel";
-import type { ProjectContextPanelProps } from "./project-context";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -313,7 +311,6 @@ function ProjectAgentPanelView({
   conversationBoundaryBusy,
   taskCard,
   taskAction,
-  projectContext, contextBusy, contextError, onContextCommand, onLocateResult, onUseResults, onCompareResults,
   creationSession,
   creationBusy,
   creationError,
@@ -353,7 +350,7 @@ function ProjectAgentPanelView({
   panelLayout,
   commitPanelLayout,
   debugCommit
-}: CreationSessionPanelProps & ProjectContextPanelProps & {
+}: CreationSessionPanelProps & {
   projectName: string;
   messages: AgentMessage[];
   conversations: AgentConversation[];
@@ -406,6 +403,7 @@ function ProjectAgentPanelView({
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [creationDetails, setCreationDetails] = useState<{ scope: string; open: boolean }>();
   const [placementOpen, setPlacementOpen] = useState(false);
   const [historyAnchor, setHistoryAnchor] = useState({ x: 0, y: 0 });
   const [placementAnchor, setPlacementAnchor] = useState({ x: 0, y: 0 });
@@ -483,7 +481,7 @@ function ProjectAgentPanelView({
             ? "Agent 思考完成"
             : "等待指令";
   const statusText = !stopPending && activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
-  const collapsedIssue = taskCard?.question || taskCard?.error || creationError || contextError || (agentStatus === "error" ? statusText : "");
+  const collapsedIssue = taskCard?.question || taskCard?.error || creationError || (agentStatus === "error" ? statusText : "");
 
   function beginPanelPointer(
     event: React.PointerEvent<HTMLElement>,
@@ -634,11 +632,10 @@ function ProjectAgentPanelView({
     };
   }, [placementOpen]);
 
-  // Keep unsaved project drafts mounted when opening the detached window.
-  // Both layouts share this keyed child so incoming CAS updates preserve edits.
-  const projectContextSurface = <div key="project-context-surface" style={{ display: collapsed ? "none" : "contents" }}>
-    <ProjectContextPanel projectContext={projectContext} contextBusy={contextBusy} contextError={contextError} onContextCommand={onContextCommand} onLocateResult={onLocateResult} onUseResults={onUseResults} onCompareResults={onCompareResults} />
-  </div>;
+  const hasCreationDetails = Boolean(creationSession && (creationSession.requirements || creationSession.results.length));
+  const creationScope = creationSession ? JSON.stringify([creationSession.projectId, creationSession.conversationId]) : "";
+  const creationDetailsMounted = hasCreationDetails && creationDetails?.scope === creationScope;
+  const creationDetailsOpen = creationDetailsMounted && creationDetails?.open === true;
 
   if (collapsed) {
     return (
@@ -672,14 +669,13 @@ function ProjectAgentPanelView({
             icon={stopPending ? <Loader2 size={16} className="spin" /> : <X size={16} />}
           /> : null}
         </div>
-        {projectContextSurface}
       </aside>
     );
   }
 
  return (
     <aside
-      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${taskCard || creationSession ? "has-task" : ""} ${referenceDropActive ? "reference-drop-active" : ""}`}
+      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${taskCard || hasCreationDetails ? "has-task" : ""} ${referenceDropActive ? "reference-drop-active" : ""}`}
       aria-label="项目 Agent 对话栏"
       onDragEnter={(event) => {
         if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
@@ -835,8 +831,7 @@ function ProjectAgentPanelView({
         </div> : null}
       </div>
 
-      {projectContextSurface}
-      {taskCard || creationSession ? <div className="agent-task-area">
+      {taskCard || hasCreationDetails ? <div className="agent-task-area">
       {taskCard ? (
         <section className="agent-task-card" aria-label="当前任务">
           <div><strong title={taskCard.title}>{taskCard.title}</strong><span>{taskCard.phase}{taskCard.generatedCount !== undefined ? ` · 已生成 ${taskCard.generatedCount}` : ""} · 已保存 {taskCard.savedCount} 项成果</span></div>
@@ -844,11 +839,13 @@ function ProjectAgentPanelView({
           {taskCard.action !== "none" ? <ButtonBase type="button" onClick={taskAction}>{taskCard.action === "answer" ? "回答问题" : taskCard.action === "recover" ? "恢复原结果" : "保存项目"}</ButtonBase> : null}
         </section>
       ) : null}
-      {creationSession ? <React.Suspense fallback={<div className="creation-session-loading">正在读取创作要求…</div>}><LazyCreationSessionPanel
+      {hasCreationDetails ? <ButtonBase className="ui-inline-action" type="button" aria-expanded={creationDetailsOpen} aria-controls="agent-creation-details"
+        onClick={() => setCreationDetails({ scope: creationScope, open: !creationDetailsOpen })}>创作要求与验收</ButtonBase> : null}
+      {creationDetailsMounted ? <div id="agent-creation-details" hidden={!creationDetailsOpen}><React.Suspense fallback={<div className="creation-session-loading">正在读取创作要求…</div>}><LazyCreationSessionPanel embedded
         creationSession={creationSession} creationBusy={creationBusy} creationError={creationError} executionBusy={executionBusy}
         onUpdateCreationRequirements={onUpdateCreationRequirements} onCreationDecision={onCreationDecision}
         onStartCreationRevision={onStartCreationRevision} onRegionRevision={onRegionRevision} onCheckCreationAcceptance={onCheckCreationAcceptance}
-      /></React.Suspense> : null}
+      /></React.Suspense></div> : null}
       </div> : null}
 
       <ProjectAgentFeed

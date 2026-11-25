@@ -2067,7 +2067,7 @@ export type EdgeDraft = {
 
 export type CanvasMenuScope = { projectId: string; revision: number };
 export type CanvasMenuState = CanvasMenuScope & (
-  | { kind: "canvas"; x: number; y: number; worldX: number; worldY: number; selectionIds: string[]; primaryId: string }
+  | { kind: "canvas"; more?: boolean; x: number; y: number; worldX: number; worldY: number; selectionIds: string[]; primaryId: string }
   | { kind: "node"; x: number; y: number; nodeId: string }
   | { kind: "selection"; x: number; y: number; nodeIds: string[]; primaryId: string });
 

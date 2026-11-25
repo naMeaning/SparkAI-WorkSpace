@@ -1,5 +1,9 @@
 # SparkAI WorkSpace 上下文地图
 
+## 默认创作路径减负（2026-11-20）
+
+单次创作沿项目 Agent composer 和现有 TaskScope。`src/main.tsx` 将 `ProjectContextPanel` 挂入顶栏 `WorkspaceSearch`，在 960px 以下窗口打开顺序工作流时自动折叠 Agent，并将旧领域工具移入项目菜单。`src/project-agent-panel.tsx` 与 `src/creation-session-panel.tsx` 按需展开内嵌创作要求与验收详情，`src/styles/07e-canvas-brand-agent-header.css` 约束顶栏长标题单列省略避免遮挡操作按钮。`src/project-result-comparison.tsx` 提供按当前项目隔离的单张导出。`src/manual-image-task-dialog.tsx` 支持独立 ComfyUI 任务入口。`src/workspace-chrome.tsx` 仅在项目存在已有需求节点时显示需求轨，并在工作流兼容入口请求时打开旧模板轨。
+
 ## Sparkvas 首版（2026-11-20）
 
 [工作流优先重构方案](SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md) 记录当前首版范围及排期。画布旁的步骤面板承接自定义工作流创建与运行，项目、资产和 Agent 沿现有数据源。独立 Studio、Registry、Marketplace 和布局构建器排入后续。首版工作流由 `runtime/sequential-workflow.mjs` 校验定义和步骤绑定，`desktop/sequential-workflows.cjs` 在项目元数据目录保存草稿与运行快照，在应用配置目录保存个人库。图片派发使用稳定的工作流运行 ID、步骤序号和尝试序号对接原图片操作日志。Renderer 将受管输出投影回发起项目的画布。Main 核对项目 session 中的资产标识后确认投影。运行绑定发起项目，`project-ipc.cjs` 在该项目有活动运行时阻止移除。`preload.cjs` 暴露 `sequentialWorkflow` 与项目变更订阅，`register-desktop-ipc.cjs` 注册 `naimage:workflow:command`。CLI/MCP 通过 `workflow.manage` 访问同一服务，输出只返回资产身份。`runtime/workspace-appearance.mjs` 提供旧明暗主题映射。专项入口为 `test:sequential-workflow` 和 `aidebug:sequential-workflow`。

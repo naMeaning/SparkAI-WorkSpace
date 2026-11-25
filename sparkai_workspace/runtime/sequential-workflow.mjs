@@ -6,6 +6,7 @@ export const workflowStepNames = Object.freeze({
 });
 
 const identifier = /^[a-z][a-z0-9_-]{0,63}$/i;
+const assetIdentifier = /^[a-z][a-z0-9_-]{0,127}$/i;
 const token = /\{\{([a-z][a-z0-9_-]{0,63})\}\}/gi;
 const record = value => value && typeof value === "object" && !Array.isArray(value);
 const text = (value, limit) => typeof value === "string" ? value.replace(/\0/g, "").trim().slice(0, limit) : "";
@@ -38,7 +39,7 @@ export function normalizeWorkflow(value) {
 }
 
 export function workflowAssetIdentity(value) {
-  if (!record(value) || !identifier.test(value.assetId) || !identifier.test(value.occurrenceId) || !/^[a-f0-9]{64}$/i.test(value.contentHash)) return null;
+  if (!record(value) || !assetIdentifier.test(value.assetId) || !assetIdentifier.test(value.occurrenceId) || !/^[a-f0-9]{64}$/i.test(value.contentHash)) return null;
   return { assetId: value.assetId, occurrenceId: value.occurrenceId, contentHash: value.contentHash.toLowerCase() };
 }
 

@@ -5,7 +5,7 @@ import { ButtonBase } from "./ui/primitives";
 import { creationRequirementsDraft as draftFor, creationRequirementsFromDraft as requirementsFor, creationLines as lines, newCreationRowId as fieldId } from "../runtime/creation-requirements-form.mjs";
 
 export default function CreationSessionPanel({ creationSession: session, creationBusy = false, creationError = "", executionBusy = false,
-  onUpdateCreationRequirements, onCreationDecision, onStartCreationRevision, onRegionRevision, onCheckCreationAcceptance }: CreationSessionPanelProps) {
+  onUpdateCreationRequirements, onCreationDecision, onStartCreationRevision, onRegionRevision, onCheckCreationAcceptance, embedded = false }: CreationSessionPanelProps & { embedded?: boolean }) {
   const requirements = session?.requirements;
   const [draft, setDraft] = useState(() => draftFor(requirements));
   const [draftRevision, setDraftRevision] = useState(requirements?.revision || 0);
@@ -40,8 +40,9 @@ export default function CreationSessionPanel({ creationSession: session, creatio
   function changeDraft(key: "formats" | "width" | "height" | "minWidth" | "minHeight" | "alpha", value: string) { setDirty(true); setDraft(current => ({ ...current, [key]: value })); }
   const fields = [{ key: "goal" as const, label: "创作目标", placeholder: "希望完成什么" }, { key: "usage" as const, label: "用途", placeholder: "作品的使用场景" }];
   const criterionFields = [{ key: "preserve" as const, label: "必须保留" }, { key: "adjustable" as const, label: "可调整内容" }, { key: "conditions" as const, label: "验收条件" }];
-  return <details className="creation-session" data-creation-session>
-    <summary><strong>创作要求与验收</strong><span data-creation-summary>{creationSessionSummary(session).text}</span></summary>
+  const Surface = embedded ? "section" : "details";
+  return <Surface className="creation-session" data-creation-session aria-label={embedded ? "创作要求与验收详情" : undefined}>
+    {embedded ? null : <summary><strong>创作要求与验收</strong><span data-creation-summary>{creationSessionSummary(session).text}</span></summary>}
     <div className="creation-session-content">
       <details className="creation-requirements" open={!requirements}>
         <summary>{requirements ? `查看 / 编辑要求 · 第 ${requirements.revision} 版` : "设置结构化创作要求"}</summary>
@@ -107,5 +108,5 @@ export default function CreationSessionPanel({ creationSession: session, creatio
       </div> : <p className="creation-notice">成果生成后将在这里分别显示保存、检查和采用状态。</p>}
       {creationError || notice ? <p className="creation-notice" role="status">{notice || creationError}</p> : null}
     </div>
-  </details>;
+  </Surface>;
 }

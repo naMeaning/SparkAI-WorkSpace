@@ -1,5 +1,13 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态 · 默认创作路径减负（2026-11-25）
+
+- 以 `9cfbdde` 为基线完成第二轮默认创作路径减负，既有工作区未提交的图标化与规划文档改动保持原样。单次生图与选图改图归入 Agent 输入区，空白画布菜单优先显示导入和新建图片组，视频、ComfyUI 与恢复放入更多入口。主界面移除新建普通需求与保存旧模板入口，旧需求保持可编辑运行，旧模板从个人工作流库兼容入口访问，旧领域工具迁入项目菜单。项目知识与成果检索并入顶栏搜索，创作要求与验收在 Agent 面板按需展开，窄窗口打开工作流时自动折叠 Agent，成果对比增加按当前项目隔离的单张导出，并修复 884×640 下 Agent 顶栏长标题挤占右侧操作按钮的问题。
+- 隔离快照通过 `typecheck` 与 `test:workspace-domain`（47 项用例）。Electron 专项 `.diagnostics/default-creation-package/sparkai_workspace/.diagnostics/electron/sequential-workflow-2026-11-25T02-38-06-901Z/report.json` 共 9 组检查与 8 张截图全部通过（0 真实请求，`productBreaks` 为空），覆盖原生导入、Agent 改图、对比单张导出逐字节校验、旧项目菜单、旧需求与旧模板、独立视频/ComfyUI 入口，以及 884×640 打开与关闭工作流自动折叠恢复 Agent。`.diagnostics/default-creation-package/sparkai_workspace/.diagnostics/creation-ui-2026-11-25T02-58-07-514Z/report.json` 通过前 5 组创作验收检查。针对顶栏标题截断修复，在 884×640 隔离窗连续 4 次重载实测点击 `更多 Agent 操作` 均展开全部 8 项菜单并可打开独立浮动窗口，实拍截图目检无遮挡。
+- 基于隔离源码（冻结暂存树 `e43eaa15c8a1d3c6cf6e313656a3f87f8f1b5a5e`）执行 `corepack pnpm run package:win:unrestricted` 成功，退出码 0。独立归档安装器 `release/local-deliveries/default-creation-2026-11-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，大小 110,247,424 B，SHA-256 `eb7872ae431d0f5f37c187f72c84fdd5a3e88978239b1954a45e1d0b01d82597`，核心安装器 SHA-256 `9dda7e2e1e8254dc35cb03a6662e0938936e8e125fba4938202cb05da8aff52d`。包内 `app.asar`（53,588,111 B，SHA-256 `c35b47e1c2b73eae51fbbaa9612f99456250ff1226c36c8d223697d94d45f1e9`）与 131 个 `dist` 文件逐字节一致，确认包含顶栏截断样式、对比导出与按需创作详情入口。
+- 安装前核对无运行中的同名实例。品牌安装器 `/S` 原位升级退出码 0，耗时 43,291 ms，注册目录 `E:\sparkai-workspace\naimage` 与版本 1.0.9 不变。已安装 `SparkAIWorkSpace.exe`（SHA-256 `adfe6bff4e005e12dd7bc51135ca028a8d693b11782dcf462470c458f31a7e92`）与 `resources/app.asar` 指纹与打包产物完全一致，`AppData\Roaming\naimage\data` 中 7 个配置文件及快捷方式全部保留。安装审计记录见 `.diagnostics/default-creation-package/final-install-result.json`。
+- 本轮验证使用本地隔离素材与模拟服务，未发起真实模型、图片、视频或 ComfyUI 请求。`test:creation-ui` 完整脚本第 6 项独立窗口采用/撤销端到端链路未在完整套件中全量复跑，本轮仅定向验证顶栏菜单展开、独立窗口拉起与 10 项成果展示。制品处于本地开发交付状态，未执行正式 Release 或二进制上传。
+
 ## 当前开发状态 · Sparkvas 工作流优先重构（2026-11-20）
 
 - 首版工作流在项目画布旁提供手动和 Agent 草稿、输入和排序校验、运行记录、个人库及跨项目重新绑定。四类内置图片步骤复用 Main 的受管素材、图片请求与操作日志。旧模板按保真能力迁移，旧需求、领域工具、独立视频与 ComfyUI 经原有数据入口访问。新项目默认 `general`。

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import sharp from "sharp";
 import { BasicCdpClient, evaluateRuntime, pollForDebugTarget, waitForRuntimeExpression } from "./aidebug/harness/cdp.mjs";
 import { allocateDebugPort, waitForChildExit, waitForHttpServer } from "./aidebug/harness/process.mjs";
@@ -43,6 +44,14 @@ writeFileSync(join(config, "requirement-library.json"), JSON.stringify({ schemaV
   { version: 1, id: legacyIds[1], title: "旧复杂需求", text: "按要求处理并审核成果" }
 ] }));
 writeFileSync(join(runDir, "no-server.cjs"), "process.exit(0);\n");
+const exportPath = join(runDir, "compared-result.png");
+const entryPath = join(runDir, "fixture.cjs");
+writeFileSync(entryPath, [
+  'const { dialog } = require("electron");',
+  'dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ' + JSON.stringify([join(projects[0].path, "assets/source.png")]) + ' });',
+  'dialog.showSaveDialog = async () => ({ canceled: false, filePath: ' + JSON.stringify(exportPath) + ' });',
+  'require(' + JSON.stringify(join(root, "electron-main.cjs")) + ');'
+].join("\n"));
 const devPort = await allocateDebugPort();
 const devUrl = `http://127.0.0.1:${devPort}`;
 const vite = spawn(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(devPort)], { cwd: root, stdio: "ignore", windowsHide: true });
@@ -129,7 +138,7 @@ const panel = ".sequential-workflow";
 try {
   await waitForHttpServer(devUrl, { attempts: 150, intervalMs: 100 });
   const port = await allocateDebugPort();
-  electron = spawn(require("electron"), [root, `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
+  electron = spawn(require("electron"), [entryPath, `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
     env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "1", NAIMAGE_AIDEBUG_IMAGE_FAULTS: "1", NAIMAGE_AIDEBUG_LIVE_IMAGE: "0", NAIMAGE_CONFIG_DIR: config, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: join(runDir, "no-server.cjs") } });
   const target = await pollForDebugTarget({ port, attempts: 250, intervalMs: 100, findTarget: targets => targets.find(item => item.type === "page" && !/agent-window/.test(item.url)) });
   client = new BasicCdpClient(target.webSocketDebuggerUrl);
@@ -138,9 +147,8 @@ try {
   await wait("document.documentElement?.dataset.theme==='light'&&Boolean(document.querySelector('.workspace-workflow-entry'))");
 
   // 1. Visible legacy project/domain tool entry on commerce project
-  await wait("Boolean(document.querySelector('#workspace-legacy-tools'))");
-  const legacyTriggerBounds = await ev("(()=>{const wf=document.querySelector('.workspace-workflow-entry').getBoundingClientRect();const lg=document.querySelector('#workspace-legacy-tools').getBoundingClientRect();return {wf:{x:wf.x,right:wf.right,y:wf.y,bottom:wf.bottom},lg:{x:lg.x,right:lg.right,y:lg.y,bottom:lg.bottom}};})()");
-  assert.ok(legacyTriggerBounds.lg.x >= legacyTriggerBounds.wf.right - 1 && legacyTriggerBounds.lg.right <= 1280, JSON.stringify(legacyTriggerBounds));
+  assert.equal(await ev("Boolean(document.querySelector('#workspace-legacy-tools'))"), false);
+  await click(selector("#project-menu-trigger"));
   await click(selector("#workspace-legacy-tools"));
   await wait("Boolean(document.querySelector('[role=\"menu\"][aria-label=\"旧项目工具\"]'))");
   assert.ok(await ev(`Boolean(${button("SKU 商品素材库")})`), "legacy commerce catalog entry visible");
@@ -161,7 +169,7 @@ try {
   await click(button("编辑需求"));
   await wait("Boolean(document.querySelector('[role=\"dialog\"][aria-label=\"编辑图片处理需求\"]'))");
   await replaceText('[data-ui-surface="requirement-editor"] textarea', "保留商品主体并优化质感 · 已兼容修改");
-  await click(selector('[data-ui-surface="requirement-editor"] [aria-label="保存需求"]'));
+  await click(button("保存", '[data-ui-surface="requirement-editor"]'));
   await wait("!document.querySelector('[role=\"dialog\"][aria-label=\"编辑图片处理需求\"]')");
   await wait("document.querySelector('.flow-node[data-node-id=\"N0002\"]')?.innerText.includes('已兼容修改')");
   report.checks.push("画布已有旧需求节点可从需求轨定位并通过右键菜单编辑保存");
@@ -169,6 +177,9 @@ try {
   // 3. Independent video and ComfyUI entry (no real model/video execution)
   await rightClickEmptyCanvas();
   await wait("Boolean(document.querySelector('[role=\"menu\"][aria-label=\"画布菜单\"]'))");
+  assert.equal(await ev(`Boolean(${button("创建需求节点")} || ${button("创建生图工作")} || ${button("创建视频工作")})`), false);
+  assert.ok(await ev(`Boolean(${button("导入图片")} && ${button("新建图片组")})`));
+  await click(button("更多"));
   await click(button("创建视频工作"));
   const videoDlg = '[role="dialog"][aria-label="创建视频工作"]';
   await wait(`Boolean(${selector(videoDlg)})`);
@@ -180,10 +191,10 @@ try {
 
   await rightClickEmptyCanvas();
   await wait("Boolean(document.querySelector('[role=\"menu\"][aria-label=\"画布菜单\"]'))");
-  await click(button("创建生图工作"));
-  const imageDlg = '[role="dialog"][aria-label="创建生图工作"]';
+  await click(button("更多"));
+  await click(button("图片执行连接 · ComfyUI"));
+  const imageDlg = '[role="dialog"][aria-label="ComfyUI 图片任务"]';
   await wait(`Boolean(${selector(imageDlg)})`);
-  await choose(`${imageDlg} [aria-label="图片执行连接"]`, "comfyui");
   await wait(`Boolean(${selector(`${imageDlg} .comfyui-task-fields`)})`);
   const comfyText = await ev(`${selector(`${imageDlg} .comfyui-task-fields`)}.innerText`);
   assert.ok(comfyText.includes("管理 ComfyUI 连接") && comfyText.includes("审核工作流") && comfyText.includes("导入 API Format JSON 工作流"), comfyText);
@@ -271,9 +282,10 @@ try {
   // Check narrow 884x640 topbar with legacy tools visible before switching to general project
   await client.send("Emulation.setDeviceMetricsOverride", { width: 884, height: 640, deviceScaleFactor: 1, mobile: false });
   await wait("innerWidth===884&&innerHeight===640");
-  const narrowTopbar = await ev("(()=>{const wf=document.querySelector('.workspace-workflow-entry').getBoundingClientRect();const lg=document.querySelector('#workspace-legacy-tools').getBoundingClientRect();const actions=document.querySelector('.ide-actions').getBoundingClientRect();return {wf:{x:wf.x,right:wf.right},lg:{x:lg.x,right:lg.right},actionsLeft:actions.left};})()");
-  if (narrowTopbar.lg.right > narrowTopbar.actionsLeft + 1) productBreaks.push(`884px 窄窗口顶栏旧项目工具与右侧操作区重叠: ${JSON.stringify(narrowTopbar)}`);
-  await captureViewportScreenshot("884x640-light-legacy-topbar");
+  await click(selector("#project-menu-trigger"));
+  await wait("Boolean(document.querySelector('#workspace-legacy-tools'))");
+  await captureViewportScreenshot("884x640-light-legacy-project-menu");
+  await pressEscape();
   await client.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await command("project.switch", { id: projects[1].id });
   await wait("!document.querySelector('#workspace-legacy-tools')");
@@ -330,7 +342,9 @@ try {
   assert.ok(actionContrast >= 4.5, `Dark workflow run action contrast: ${actionContrast}`);
   report.darkRunActionContrast = Number(actionContrast.toFixed(2));
   await screenshot("884x640-dark-draft", 884, 640);
+  await wait("Boolean(document.querySelector('.project-agent-panel.is-collapsed'))");
   await screenshot("1280x800-dark-draft", 1280, 800);
+  await wait("!document.querySelector('.project-agent-panel.is-collapsed')");
   await click(selector(`${panel} [aria-label="关闭工作流"]`));
   await wait(`!${selector(panel)}`);
   await click(selector('.canvas-tools .zoom-button'));
@@ -340,6 +354,42 @@ try {
   await wait("Boolean(document.querySelector('[role=\"menu\"][aria-label=\"成果菜单\"]'))");
   await click(button("对比图片"));
   await inspectComparisonModal("dark", "1280x800-dark-comparison");
+  const importProjectParent = join(root, ".diagnostics", `creation-${Date.now()}`);
+  mkdirSync(importProjectParent, { recursive: true });
+  await command("project.create", { name: "默认创作验证", parentDirectory: importProjectParent });
+  await wait("document.querySelector('#project-menu-trigger')?.innerText.includes('默认创作验证')");
+  await rightClickEmptyCanvas();
+  await click(button("导入图片"));
+  await wait("Boolean(document.querySelector('.flow-node.selected img'))");
+  const sourceId = await ev("document.querySelector('.flow-node.selected').dataset.nodeId");
+  await writeText(".project-agent-composer textarea", "把选中的图片背景改成浅灰色，生成一张新图");
+  await click(selector(".project-agent-composer .project-agent-send"));
+  await wait(`[...document.querySelectorAll('.flow-node')].some(node=>node.dataset.nodeId!==${JSON.stringify(sourceId)}&&node.querySelector('img'))`);
+  const recentProject = JSON.parse(readFileSync(join(config, "project-list.json"), "utf8")).projects.find(item => item.name === "默认创作验证");
+  await wait("Boolean(document.querySelector('.agent-task-card'))");
+  const deadline = Date.now() + 10000;
+  let resultNode;
+  while (Date.now() < deadline && !resultNode) {
+    const session = JSON.parse(readFileSync(recentProject.sessionPath, "utf8"));
+    resultNode = session.nodes.find(node => node.parentId === sourceId && node.assets?.length);
+    if (!resultNode) await delay(100);
+  }
+  assert.ok(resultNode, "Agent saved a result derived from the selected source");
+  assert.equal(await ev("Boolean(document.querySelector('.project-agent-panel [data-creation-session]'))"), false);
+  await click(button("创作要求与验收", ".project-agent-panel"));
+  await wait("Boolean(document.querySelector('#agent-creation-details:not([hidden]) [data-creation-session]')?.getBoundingClientRect().height)");
+  await click(button("创作要求与验收", ".project-agent-panel"));
+  await wait("document.querySelector('#agent-creation-details')?.hidden===true");
+  await captureViewportScreenshot("default-agent-edit");
+  await click(selector('.canvas-tools .zoom-button'));
+  const resultHandle = selector(`.flow-node[data-node-id="${resultNode.id}"] .node-head`);
+  await click(resultHandle, { button: "right" });
+  await click(button("对比图片"));
+  const comparison = '[role="dialog"][aria-label="所选成果对比"]';
+  await click(selector(`${comparison} [aria-label^="导出所选版本"]`));
+  await wait(`!${selector(`${comparison} [aria-label^="导出所选版本"]`)}.disabled`);
+  assert.deepEqual(readFileSync(exportPath), readFileSync(resultNode.assets[0].path), "exported the selected comparison version byte for byte");
+  report.checks.push("新项目通过原生导入与 Agent 编辑生成带来源图，成果对比可导出选中版本");
   report.productBreaks = productBreaks;
   assert.equal(report.realModelRequests, 0);
   assert.deepEqual(productBreaks, []);

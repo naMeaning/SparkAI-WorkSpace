@@ -65,14 +65,11 @@ assert.ok(defaultSettings.pluginStates.every((state) => state.enabled));
 
 const workspaceChromeSource = readFileSync(new URL("../src/workspace-chrome.tsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
-const glassSurfaceSource = readFileSync(new URL("../src/styles/07j-liquid-glass-surfaces.css", import.meta.url), "utf8");
-assert.doesNotMatch(workspaceChromeSource, /data-domain-tool-command=/, "Specialized commands belong to the single canvas tool menu");
-assert.match(mainSource, /tools=\{pluginToolbarItems\.length \?/, "The canvas navigation must receive the same enabled domain tool projection");
-assert.match(mainSource, /data-plugin-command=\{item\.command\}/, "Moved tools must retain their plugin command identity");
-assert.match(mainSource, /executePluginCommand\(item\.command\)/, "Moved tools must delegate to the same command owner");
-assert.match(mainSource, /projectedPluginEnabled \? "tools" : "plugins"/, "The recovery path must open the relevant settings section");
-assert.match(mainSource, /useState<SettingsSection>\("connections"\)/, "General settings begin at the connection summary while legacy deep links remain accepted");
-assert.doesNotMatch(glassSurfaceSource, /\.workspace-domain-switcher-trigger > span:nth-child\(2\),\s*\.workspace-domain-switcher-trigger > svg:last-child/, "Compact workspaces must keep the current domain text visible");
+assert.doesNotMatch(workspaceChromeSource, /data-domain-tool-command=/, "Legacy domain tools belong to the project menu");
+assert.doesNotMatch(mainSource, /tools=\{pluginToolbarItems\.length \?/, "The default canvas toolbar excludes domain tools");
+assert.match(mainSource, /workspaceDomain !== "general" && pluginToolbarItems\.length \? <MenuItem id="workspace-legacy-tools"/, "The legacy project menu owns the tools entry");
+assert.match(mainSource, /ariaLabel="旧项目工具"[\s\S]{0,900}pluginToolbarItems\.map[\s\S]{0,600}executePluginCommand\(item\.command\)/, "Legacy tools use the enabled projection and the existing command owner");
+assert.match(mainSource, /useState<SettingsSection>\("connections"\)/, "Settings retain a shared connection entry point");
 
 const emptySession = { schemaVersion: 5, nodes: [], messages: [], conversations: [] };
 assert.equal(sanitizeSession(emptySession).workspaceDomain, "general", "Old sessions must default to general");

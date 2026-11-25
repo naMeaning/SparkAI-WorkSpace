@@ -3026,8 +3026,7 @@ html[data-theme="dark"] .sequential-workflow { --workflow-error: #ffa8a6; color-
 .sequential-workflow details :is(dt, dd, li, p) { overflow-wrap: anywhere; }
 .sequential-workflow details dl { margin: 6px 0; }
 .sequential-workflow details dd { margin: 0 0 5px; color: var(--workflow-muted); }
-.workspace-workflow-entry,
-.workspace-compatibility-tools > button {
+.workspace-workflow-entry {
   padding: 4px 9px;
   border: 1px solid var(--glass-line);
   border-radius: 6px;
@@ -3037,7 +3036,5 @@ html[data-theme="dark"] .sequential-workflow { --workflow-error: #ffa8a6; color-
   white-space: nowrap;
   -webkit-app-region: no-drag;
 }
-.workspace-workflow-entry:hover,
-.workspace-compatibility-tools > button:hover { background: var(--solid-control-hover, transparent); }
-.workspace-workflow-entry:focus-visible,
-.workspace-compatibility-tools > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace-workflow-entry:hover { background: var(--solid-control-hover, transparent); }
+.workspace-workflow-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

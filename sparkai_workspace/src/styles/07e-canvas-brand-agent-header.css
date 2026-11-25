@@ -196,6 +196,7 @@
   flex: 1 1 auto;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
 
@@ -205,6 +206,8 @@
 }
 
 .project-agent-header h2 {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink);
   font-family: inherit;
   font-size: 14px;
@@ -230,11 +233,13 @@
 
 .project-agent-conversation-trigger {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 32px;
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
   padding: 2px 4px;
   border: 1px solid transparent;
   border-radius: 6px;

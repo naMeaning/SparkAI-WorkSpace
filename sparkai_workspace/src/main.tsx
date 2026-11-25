@@ -85,6 +85,7 @@ import {
   Download,
   Eye,
   MousePointer2,
+  MoreHorizontal,
   EyeOff,
   Film,
   FolderOpen,
@@ -3698,7 +3699,15 @@ function App() {
   const [compatibilityToolsOpen, setCompatibilityToolsOpen] = useState(false);
   const saveWorkflowBeforeExit = useRef<(() => Promise<void>) | null>(null);
   const workflowEntryRef = useRef<HTMLButtonElement>(null);
-  const compatibilityToolsRef = useRef<HTMLButtonElement>(null);
+  const [narrowWorkspace, setNarrowWorkspace] = useState(() => window.matchMedia("(max-width: 960px)").matches);
+  const collapseAgentForWorkflow = workflowOpen && narrowWorkspace;
+  useEffect(() => {
+    const width = window.matchMedia("(max-width: 960px)");
+    const onChange = () => setNarrowWorkspace(width.matches);
+    width.addEventListener("change", onChange);
+    onChange();
+    return () => width.removeEventListener("change", onChange);
+  }, []);
   const [requirementTemplates, setRequirementTemplates] = useState<RequirementLibraryEntry[]>([]);
   const [requirementTemplatesLoading, setRequirementTemplatesLoading] = useState(false);
   const requirementTemplatesLoadedRef = useRef(false);
@@ -3864,7 +3873,7 @@ function App() {
   const currentAgentTask = useAgentTaskReceipt(activeProjectId, activeConversationId, configReady);
   const currentAgentTaskCard = agentTaskCard(currentAgentTask);
   const projectContextState = useProjectContext(activeProjectId, activeConversationId, configReady);
-  const [projectComparison, setProjectComparison] = useState<ProjectComparisonItem[] | null>(null);
+  const [projectComparison, setProjectComparison] = useState<{ projectId: string; items: ProjectComparisonItem[] } | null>(null);
   const creationState = useCreationSession(activeProjectId, activeConversationId, configReady);
   const creationSessionView = useMemo<CreationSessionSnapshot | null>(() => {
     if (!creationState.snapshot) return null;
@@ -5102,8 +5111,11 @@ function App() {
         const frozenAsset = regionRedrawDraft?.sourceAsset;
         const asset = target ? located?.asset : frozenAsset ? node?.assets?.find(candidate => candidate.path === frozenAsset.path && candidate.url === frozenAsset.url && candidate.assetId === frozenAsset.assetId && candidate.occurrenceId === frozenAsset.occurrenceId && candidate.contentHash === frozenAsset.contentHash) : node?.assets?.[assetIndex];
         if (!asset) throw new Error("AI 图片编辑来源图片不存在。");
-        const source = await imageAssetCanvasSrc(asset);
+        const [source] = await Promise.all([imageAssetCanvasSrc(asset), loadImageWorkspaceOverlays()]);
         const image = await loadImageForCanvas(source);
+        for (let frame = 0; frame < 30 && !cancelled && (!regionRedrawSourceCanvasRef.current || !regionRedrawMaskCanvasRef.current); frame += 1) {
+          await new Promise<void>((resolveFrame) => window.requestAnimationFrame(() => resolveFrame()));
+        }
         if (cancelled) return;
         const sourceCanvas = regionRedrawSourceCanvasRef.current;
         const maskCanvas = regionRedrawMaskCanvasRef.current;
@@ -8257,7 +8269,7 @@ function App() {
     return node;
   }
 
-  function openManualImageTaskAt(worldX: number, worldY: number) {
+  function openManualImageTaskAt(worldX: number, worldY: number, comfyUiOnly = false) {
     if (!activeProjectIdRef.current) {
       setServerMessage("请先创建或打开项目，再创建图片任务。");
       return;
@@ -8268,13 +8280,15 @@ function App() {
     }
     const draft = cloneImageTaskDraft({
       ...defaultImageTaskDraft(settings),
-      count: clamp(Number(settings.imageCount || 1), 1, 10),
+      count: comfyUiOnly ? 1 : clamp(Number(settings.imageCount || 1), 1, 10),
+      ...(comfyUiOnly ? { provider: "comfyui" as const } : {}),
       model: settings.imageModel || "",
       referenceImages: []
     });
     setCanvasMenu(null);
     setManualImageTaskDialog({
       id: uid("manual-image-dialog"),
+      comfyUiOnly,
       draft,
       worldX: Math.round(worldX),
       worldY: Math.round(worldY),
@@ -10472,27 +10486,6 @@ function App() {
     return hostNodeId;
   }
 
-  function openRequirementEditorForSelection(capabilities = currentCanvasSelectionCapabilities()) {
-    let sourceId = capabilities.preferredContainerHostId;
-    if (!sourceId || capabilities.groupableNodeIds.length === 0) {
-      setServerMessage("当前选择没有可作为需求来源的图片成果。");
-      return false;
-    }
-    if (capabilities.canGroupIntoContainer) {
-      const mergedHostId = mergeSelectedIntoImageContainer(capabilities);
-      if (!mergedHostId) return false;
-      sourceId = mergedHostId;
-    }
-    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
-    const source = projection.canvasNodeById.get(sourceId) ?? nodesRef.current.find((node) => node.id === sourceId);
-    if (!source || source.type !== "image") {
-      setServerMessage("选中的图片成果已发生变化，请重新选择后再创建需求。");
-      return false;
-    }
-    openRequirementEditorForSource(source);
-    addEvent(`基于 ${capabilities.groupableNodeIds.length} 个选中图片成果创建可复用需求`);
-    return true;
-  }
 
   function deleteSelectedCanvasNodes(capabilities = currentCanvasSelectionCapabilities()) {
     if (!capabilities.canDelete) return false;
@@ -13816,7 +13809,7 @@ function App() {
       if (!found) throw new Error("对比成果已变化，请重新搜索。");
       return { target: { ...target }, label: found.asset.title || found.node.title || "所选成果", src: imageAssetSrc(found.asset) };
     });
-    setProjectComparison(items); return { ok: true };
+    setProjectComparison({ projectId: activeProjectIdRef.current, items }); return { ok: true };
   }
   const projectContextProps = {
     projectContext: projectContextState.snapshot, contextBusy: projectContextState.busy, contextError: projectContextState.error,
@@ -14456,6 +14449,11 @@ function App() {
     setLockedNodeIds([]);
     setAgentPaused(false);
     suspendProjectSessionAutosave();
+    if (activeProjectIdRef.current !== nextProjectId) {
+      setWorkspaceAssetRailTabRequest(undefined);
+      setCompatibilityToolsOpen(false);
+      setProjectComparison(null);
+    }
     activeProjectIdRef.current = nextProjectId;
     workspaceDomainRef.current = nextSession.workspaceDomain;
     if (nextProjectId) {
@@ -14637,14 +14635,6 @@ function App() {
         title: "定位当前选中",
         icon: <Maximize2 size={14} />,
         onClick: () => focusWorkflowNodes(selectedNodes),
-      },
-      {
-        id: "requirement",
-        label: "提要求",
-        title: "基于选中的图片成果创建需求",
-        icon: <Workflow size={14} />,
-        disabled: selectedCanvasCapabilities.groupableNodeIds.length === 0,
-        onClick: () => openRequirementEditorForSelection(selectedCanvasCapabilities),
       },
       {
         id: "group",
@@ -27656,7 +27646,23 @@ function App() {
   });
   const projectAgentEditFastMemory = useStableEvent(() => setFastMemoryEditorOpen(true));
   const projectAgentSwitchConversation = useStableEvent((conversationId: string) => switchProjectConversation(conversationId));
-  const projectAgentToggleCollapsed = useStableEvent(() => setAgentCollapsed((current) => !current));
+  async function focusProjectAgent() {
+    try {
+      if (collapseAgentForWorkflow) {
+        await saveWorkflowBeforeExit.current?.();
+        setWorkflowOpen(false);
+      }
+      setAgentCollapsed(false);
+      requestAnimationFrame(() => agentInputRef.current?.focus());
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : "工作流草稿尚未保存。");
+    }
+  }
+
+  const projectAgentToggleCollapsed = useStableEvent(() => {
+    if (collapseAgentForWorkflow) void focusProjectAgent();
+    else setAgentCollapsed(current => !current);
+  });
   const projectAgentEditImageConfig = useStableEvent(() => setAgentImageConfigOpen(true));
   const persistAgentImageConfig = useStableEvent(async (patch: Partial<AppSettings>) => {
     if (agentExecutionBusyNow() || agentStopPendingRef.current) throw new Error("任务运行中，图片配置暂不可修改。");
@@ -28146,43 +28152,6 @@ function App() {
     ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
   }
 
-  async function saveSelectedRequirementTemplate(requestedNodeId = selectedNodeIdRef.current) {
-    const selectedId = String(requestedNodeId || "");
-    const node = nodesRef.current.find((candidate) => candidate.id === selectedId && candidate.type === "requirement" && candidate.requirement);
-    if (!node?.requirement) {
-      if (currentAgentTask?.phase === "completed" && currentAgentTask.savedCount > 0 && currentAgentTask.requirementRef) {
-        try {
-          const result = await saveRequirementLibraryForAutomation({ expectedProjectId: activeProjectIdRef.current,
-            taskId: currentAgentTask.taskId, conversationId: currentAgentTask.conversationId,
-            expectedRequirementsRevision: currentAgentTask.requirementRef.revision });
-          setServerMessage(`已将成功任务保存为方法模板：${result.entry!.title}`);
-          return true;
-        } catch (error) { setServerMessage(`保存方法失败：${error instanceof Error ? error.message : String(error)}`); return false; }
-      }
-      setServerMessage("请选择需求节点，或在成功保存的创作任务后保存当前方法。"); return false;
-    }
-    const bridge = requirementLibraryBridge();
-    if (!bridge?.saveRequirementLibraryEntry) {
-      setServerMessage("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
-      return false;
-    }
-    const result = await bridge.saveRequirementLibraryEntry({
-      title: node.title || requirementTitleFromText(node.requirement.text),
-      text: node.requirement.text,
-      ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
-      ...(node.requirement.socialPlan ? { socialPlan: structuredClone(node.requirement.socialPlan) } : {}),
-      ...(node.requirement.scientificPlan ? { scientificPlan: structuredClone(node.requirement.scientificPlan) } : {}),
-    });
-    if (!result?.ok || !result.entry) {
-      setServerMessage(`保存需求模板失败：${result?.error || "模板库没有返回保存结果。"}`);
-      return false;
-    }
-    cacheRequirementTemplate(result.entry);
-    setServerMessage(`已保存到个人需求模板库：${result.entry.skill?.name || result.entry.title}`);
-    addEvent(`保存需求模板 ${result.entry.id} · 来源 ${node.id}`);
-    return true;
-  }
-
   async function deleteRequirementTemplate(templateId: string) {
     const bridge = requirementLibraryBridge();
     if (!bridge?.deleteRequirementLibraryEntry) {
@@ -28445,7 +28414,7 @@ function App() {
         <nav className="file-menu project-actions" aria-label="项目菜单">
           <div className="project-menu">
             <ButtonBase ref={projectMenuTriggerRef} id="project-menu-trigger" aria-label={`项目：${activeProjectName}`} aria-haspopup="menu" aria-expanded={projectMenuOpen || fileMenuOpen}
-              onClick={() => { setSettingsOpen(false); setAccountOpen(false); setFileMenuOpen(false); setProjectMenuOpen((current) => !current); }} disabled={fileActionBusy}>
+              onClick={() => { setCompatibilityToolsOpen(false); setSettingsOpen(false); setAccountOpen(false); setFileMenuOpen(false); setProjectMenuOpen((current) => !current); }} disabled={fileActionBusy}>
               <FolderOpen size={16} /><span className="project-active-name">{activeProjectName}</span><ChevronDown size={14} />
             </ButtonBase>
             {projectMenuOpen || fileMenuOpen ? <MenuSurface className="project-menu-popover file-command-popover" ariaLabel="项目操作" triggerId="project-menu-trigger"
@@ -28464,6 +28433,7 @@ function App() {
               <MenuItem icon={<Import size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(openProjectPath)}>打开已有项目</MenuItem>
               <MenuItem icon={<Download size={16} />} disabled={fileActionBusy || !activeProject} onClick={() => runProjectMenuAction(exportProject)}>导出项目文件</MenuItem>
               <MenuItem icon={<Import size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(importProject)}>导入项目文件</MenuItem>
+              {workspaceDomain !== "general" && pluginToolbarItems.length ? <MenuItem id="workspace-legacy-tools" icon={<Workflow size={16} />} onClick={() => runProjectMenuAction(() => setCompatibilityToolsOpen(true))}>旧项目工具</MenuItem> : null}
               <MenuSeparator />
               <MenuSummary title="切换项目" />
               {projects.map((project) => <MenuItem key={project.id} className={project.id === activeProjectId ? "active" : ""} disabled={fileActionBusy}
@@ -28480,14 +28450,12 @@ function App() {
             if (workflowOpen) document.querySelector<HTMLButtonElement>('.sequential-workflow [aria-label="关闭工作流"]')?.focus();
             else setWorkflowOpen(true);
           }}>工作流</ButtonBase>
-          {workspaceDomain !== "general" && pluginToolbarItems.length ? <div className="workspace-compatibility-tools">
-            <ButtonBase ref={compatibilityToolsRef} id="workspace-legacy-tools" type="button" aria-expanded={compatibilityToolsOpen} onClick={() => setCompatibilityToolsOpen(open => !open)}>旧项目工具</ButtonBase>
-            {compatibilityToolsOpen ? <MenuSurface x={compatibilityToolsRef.current?.getBoundingClientRect().left ?? 0} y={(compatibilityToolsRef.current?.getBoundingClientRect().bottom ?? 0) + 4} ariaLabel="旧项目工具" triggerId="workspace-legacy-tools" onRequestClose={() => setCompatibilityToolsOpen(false)}>
-              {pluginToolbarItems.map(item => <MenuItem key={item.command} icon={canvasToolIcon(item.icon)} disabled={(agentExecutionBusy && !item.availableDuringAgentRun) || (item.when === "canvas.has-image-selection" && !selectedCanvasCapabilities.groupableNodeIds.length)} onClick={() => {
-                setCompatibilityToolsOpen(false); void executePluginCommand(item.command);
-              }}>{item.label}</MenuItem>)}
-            </MenuSurface> : null}
-          </div> : null}
+          {compatibilityToolsOpen ? <MenuSurface x={projectMenuTriggerRef.current?.getBoundingClientRect().left ?? 0} y={(projectMenuTriggerRef.current?.getBoundingClientRect().bottom ?? 0) + 4} ariaLabel="旧项目工具" triggerId="project-menu-trigger" onRequestClose={() => setCompatibilityToolsOpen(false)}>
+            {pluginToolbarItems.map(item => <MenuItem key={item.command} icon={canvasToolIcon(item.icon)} disabled={(agentExecutionBusy && !item.availableDuringAgentRun) || (item.when === "canvas.has-image-selection" && !selectedCanvasCapabilities.groupableNodeIds.length)} onClick={() => {
+              setCompatibilityToolsOpen(false);
+              void executePluginCommand(item.command);
+            }}>{item.label}</MenuItem>)}
+          </MenuSurface> : null}
         </div>
         <div className="ide-actions">
           <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
@@ -28519,7 +28487,7 @@ function App() {
 
       <main
         ref={workspaceRef}
-        className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-workbench agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
+        className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-workbench agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed || collapseAgentForWorkflow ? " agent-collapsed" : ""}`}
         style={{
           "--agent-panel-width": `${effectiveAgentPanelLayout.agentPanelWidth}px`,
           "--agent-panel-height": `${effectiveAgentPanelLayout.agentPanelHeight}px`,
@@ -28537,13 +28505,11 @@ function App() {
             selectedNodeId={selectedNode?.id ?? selectedNodeId}
             requirementTemplates={requirementTemplates}
             requirementTemplatesLoading={requirementTemplatesLoading}
-            canSaveRequirementTemplate={(selectedNode?.type === "requirement" && Boolean(selectedNode.requirement)) || (currentAgentTask?.phase === "completed" && currentAgentTask.savedCount > 0 && Boolean(currentAgentTask.requirementRef))}
             onSelectNode={selectWorkspaceNavigatorNode}
             onOpenLayer={openWorkspaceLayerNode}
             onSelectConversation={switchProjectConversation}
             onLoadRequirementTemplates={(force) => { void loadRequirementTemplates(force); }}
             onUseRequirementTemplate={(templateId, options) => useRequirementTemplate(templateId, options)}
-            onSaveRequirementTemplate={() => { void saveSelectedRequirementTemplate(); }}
             onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
             onOpenSettings={() => openSettingsSection("connections")}
@@ -29444,65 +29410,38 @@ function App() {
 
           {canvasMenu ? (
             <MenuSurface
+              key={canvasMenu.kind === "canvas" && canvasMenu.more ? "more" : "ordinary"}
               className={`canvas-context-menu ${canvasMenu.kind === "selection" ? "selection-context-menu" : ""}`}
               x={canvasMenu.x}
               y={canvasMenu.y}
-              ariaLabel={canvasMenu.kind === "canvas" ? "画布菜单" : canvasMenu.kind === "selection" ? "多选成果菜单" : "成果菜单"}
+              ariaLabel={canvasMenu.kind === "canvas" ? canvasMenu.more ? "更多画布操作" : "画布菜单" : canvasMenu.kind === "selection" ? "多选成果菜单" : "成果菜单"}
               onRequestClose={() => setCanvasMenu(null)}
               onClickCapture={(event) => validateMenuScope(event, canvasMenu)}
             >
-              {canvasMenu.kind === "canvas" ? (
+              {canvasMenu.kind === "canvas" && (canvasMenu.more ? (
                 <>
-                  <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    创建需求节点
-                  </MenuItem>
-                  <MenuItem icon={<Import size={15} />} onClick={() => void importSkillFileAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    导入 SKILL.md
-                  </MenuItem>
-                  <MenuItem icon={<WandSparkles size={15} />} disabled={agentExecutionBusy} onClick={() => openManualImageTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    创建生图工作
-                  </MenuItem>
-                  <MenuItem icon={<Film size={15} />} disabled={videoTaskBusy} onClick={() => openManualVideoTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    创建视频工作
-                  </MenuItem>
-                  <MenuItem icon={<RotateCcw size={15} />} onClick={() => { setCanvasMenu(null); setImageRecoveryOpen(true); }}>恢复图片结果</MenuItem>
+                  <MenuItem onClick={() => setCanvasMenu({ ...canvasMenu, more: false })}>返回画布菜单</MenuItem>
                   <MenuSeparator />
+                  <MenuItem icon={<Film size={15} />} onClick={() => void importPickedVideosToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>导入视频</MenuItem>
+                  <MenuItem icon={<Film size={15} />} disabled={videoTaskBusy} onClick={() => openManualVideoTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>创建视频工作</MenuItem>
+                  <MenuItem icon={<WandSparkles size={15} />} disabled={agentExecutionBusy} onClick={() => openManualImageTaskAt(canvasMenu.worldX, canvasMenu.worldY, true)}>图片执行连接 · ComfyUI</MenuItem>
+                  <MenuItem icon={<RotateCcw size={15} />} onClick={() => { setCanvasMenu(null); setImageRecoveryOpen(true); }}>恢复图片结果</MenuItem>
+                  <MenuItem icon={<Import size={15} />} onClick={() => void importSkillFileAt(canvasMenu.worldX, canvasMenu.worldY)}>导入 SKILL.md</MenuItem>
+                </>
+              ) : (
+                <>
+                  <MenuItem icon={<Import size={15} />} onClick={() => void importPickedImagesToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>导入图片</MenuItem>
+                  <MenuItem icon={<FolderPlus size={15} />} onClick={() => createImageContainerAt(canvasMenu.worldX, canvasMenu.worldY)}>新建图片组</MenuItem>
                   {canvasMenu.selectionIds.length ? <>
                     <MenuItem icon={<Layers3 size={15} />} onClick={() => setCanvasMenu({ kind: "selection", x: canvasMenu.x, y: canvasMenu.y,
                       projectId: canvasMenu.projectId, revision: canvasMenu.revision, nodeIds: canvasMenu.selectionIds, primaryId: canvasMenu.primaryId })}>
                       已选 {canvasMenu.selectionIds.length} 项操作…
                     </MenuItem>
                     <MenuItem icon={<X size={15} />} onClick={() => { selectCanvas(); setCanvasMenu(null); }}>取消选择</MenuItem>
-                    <MenuSeparator />
                   </> : null}
-                  <MenuItem icon={<Import size={15} />} onClick={() => void importPickedImagesToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    导入图片
-                  </MenuItem>
-                  <MenuItem icon={<Film size={15} />} onClick={() => void importPickedVideosToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    导入视频
-                  </MenuItem>
-                  <MenuItem icon={<ImageIcon size={15} />} onClick={() => createTaskImageContainerAt(canvasMenu.worldX, canvasMenu.worldY, "source")}>
-                    创建原图容器
-                  </MenuItem>
-                  <MenuItem icon={<Layers3 size={15} />} onClick={() => createTaskImageContainerAt(canvasMenu.worldX, canvasMenu.worldY, "reference")}>
-                    创建参考图容器
-                  </MenuItem>
-                   <MenuItem icon={<FolderPlus size={15} />} onClick={() => createImageContainerAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                     创建图片容器
-                   </MenuItem>
-                   <MenuSeparator />
-                   <MenuItem
-                     icon={<FolderOpen size={15} />}
-                     disabled={fileActionBusy}
-                     onClick={() => {
-                       setCanvasMenu(null);
-                       void openCurrentProjectFolder();
-                     }}
-                   >
-                     打开当前项目文件夹
-                   </MenuItem>
-                 </>
-               ) : null}
+                  <MenuItem icon={<MoreHorizontal size={15} />} onClick={() => setCanvasMenu({ ...canvasMenu, more: true })}>更多</MenuItem>
+                </>
+              ))}
               {canvasMenu.kind === "selection" && menuSelectionCapabilities ? (
                 <>
                   <MenuSummary title={`已选择 ${canvasMenu.nodeIds.length} 个成果`}>
@@ -29517,13 +29456,6 @@ function App() {
                       <MenuSeparator />
                     </>
                   ) : null}
-                  <MenuItem
-                    icon={<Workflow size={15} />}
-                    disabled={menuSelectionCapabilities.groupableNodeIds.length === 0}
-                    onClick={() => openRequirementEditorForSelection(menuSelectionCapabilities)}
-                  >
-                    基于 {menuSelectionCapabilities.groupableNodeIds.length} 个图片成果提要求
-                  </MenuItem>
                   <MenuItem
                     icon={<FolderPlus size={15} />}
                     shortcut="Ctrl G"
@@ -29615,7 +29547,9 @@ function App() {
                   {(() => {
                     const targetNode = canvasNodeById.get(canvasMenu.nodeId);
                     const parentNode = targetNode?.parentId ? canvasNodeById.get(targetNode.parentId) : undefined;
-                    const comparison = targetNode?.type === "image" ? workflowMaterials(parentNode ? [parentNode, targetNode] : [targetNode]).slice(0, 2) : [];
+                    const sourceMaterial = parentNode && workflowMaterials([parentNode])[0];
+                    const resultMaterials = targetNode?.type === "image" ? workflowMaterials([targetNode]) : [];
+                    const comparison = sourceMaterial ? [sourceMaterial, ...resultMaterials.slice(0, 1)] : resultMaterials.slice(0, 2);
                     return targetNode ? (
                       <>
                         {comparison.length === 2 ? <MenuItem icon={<ImageIcon size={15} />} onClick={() => { compareProjectResults(comparison); setCanvasMenu(null); }}>对比图片</MenuItem> : null}
@@ -29626,13 +29560,6 @@ function App() {
                             </MenuItem>
                             <MenuItem icon={<Settings size={15} />} onClick={() => openRequirementEditor(targetNode)}>
                               {targetNode.requirement?.skill ? "编辑 Skill 指令" : "编辑需求"}
-                            </MenuItem>
-                            <MenuItem icon={<BookMarked size={15} />} onClick={() => {
-                              setSelectedNodeId(targetNode.id);
-                              setCanvasMenu(null);
-                              void saveSelectedRequirementTemplate(targetNode.id);
-                            }}>
-                              {targetNode.requirement?.skill ? "保存 Skill 到个人模板" : "保存为个人需求模板"}
                             </MenuItem>
                             {requirementInputBindings(targetNode, nodes).length ? (
                               <MenuItem icon={<Workflow size={15} />} onClick={() => {
@@ -29665,11 +29592,11 @@ function App() {
                         ) : (
                           <>
                         <MenuItem icon={<Brain size={15} />} onClick={() => {
-                          setSelectedNodeId(targetNode.id);
+                          replaceSelectedNodeId(targetNode.id);
                           setCanvasMenu(null);
-                          agentInputRef.current?.focus();
+                          void focusProjectAgent();
                         }}>
-                          引用到 Agent
+                          在 Agent 中使用
                         </MenuItem>
                         {(targetNode.assets?.some((asset) => asset.status !== "pending" && asset.status !== "error")) ? (
                           <>
@@ -29677,9 +29604,7 @@ function App() {
                             <MenuItem icon={<Images size={15} />} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id }], "reference")}>添加到参考图</MenuItem>
                           </>
                         ) : null}
-                        <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorForSource(targetNode)}>
-                          基于此成果提要求
-                        </MenuItem>
+
                         <MenuItem icon={<Settings size={15} />} onClick={() => openNodeEditor(targetNode)}>
                           编辑成果
                         </MenuItem>
@@ -29912,15 +29837,13 @@ function App() {
                 <MenuItem icon={<Brain size={15} />} onClick={() => {
                   addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "source");
                   setAssetContextMenu(null);
-                  agentInputRef.current?.focus();
+                  void focusProjectAgent();
                 }}>
-                  引用到 Agent
+                  在 Agent 中使用
                 </MenuItem>
                 <MenuItem icon={<ImageIcon size={15} />} disabled={targetAsset.status === "pending" || targetAsset.status === "error"} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "source")}>添加到原图</MenuItem>
                 <MenuItem icon={<Images size={15} />} disabled={targetAsset.status === "pending" || targetAsset.status === "error"} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "reference")}>添加到参考图</MenuItem>
-                <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorForSource(targetNode)}>
-                  基于此成果提要求
-                </MenuItem>
+
                 <MenuSeparator />
                 <MenuItem icon={<Download size={15} />} busy={fileActionBusy} onClick={() => void saveAssetAs(targetNode, assetContextMenu.assetIndex)}>
                   另存为…
@@ -30078,7 +30001,6 @@ function App() {
           stopPending={agentStopPending}
           goalActive={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.origin === "goal"}
           taskCard={currentAgentTaskCard}
-          {...projectContextProps}
           creationSession={creationSessionView}
           creationBusy={creationState.busy}
           creationError={creationState.error}
@@ -30116,7 +30038,7 @@ function App() {
           editFastMemory={projectAgentEditFastMemory}
           switchConversation={projectAgentSwitchConversation}
           openAgentWindow={projectAgentOpenWindow}
-          collapsed={agentCollapsed}
+          collapsed={agentCollapsed || collapseAgentForWorkflow}
           toggleCollapsed={projectAgentToggleCollapsed}
           panelLayout={effectiveAgentPanelLayout}
           commitPanelLayout={persistAgentPanelLayout}
@@ -30739,7 +30661,16 @@ function App() {
         </React.Suspense>
       ) : null}
 
-      {projectComparison ? <React.Suspense fallback={null}><LazyProjectResultComparison items={projectComparison} close={() => setProjectComparison(null)} /></React.Suspense> : null}
+      {projectComparison && projectComparison.projectId === activeProjectId ? <React.Suspense fallback={null}>
+        <LazyProjectResultComparison items={projectComparison.items} close={() => setProjectComparison(null)} exportBusy={fileActionBusy}
+          onExport={async (target) => {
+            if (activeProjectIdRef.current !== projectComparison.projectId) throw new Error("项目已切换，请重新打开对比。");
+            const found = locateCreationTarget(nodesRef.current, target);
+            if (!found) throw new Error("对比成果已变化，请重新选择。");
+            const result = await saveAssetAs(found.node, found.assetIndex);
+            if (!result?.ok && !result?.canceled) throw new Error(result?.error || "图片导出失败。");
+          }} />
+      </React.Suspense> : null}
       {imageViewer ? (
         <React.Suspense fallback={null}>
           <LazyImageViewer

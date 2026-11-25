@@ -21,6 +21,7 @@ import ComfyUiTaskFields from "./comfyui-task-fields";
 export type ManualImageTaskDialogState = {
   id: string;
   draft: ImageTaskDraft;
+  comfyUiOnly?: boolean;
   worldX: number;
   worldY: number;
   projectId: string;
@@ -76,7 +77,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
   return (
     <DialogShell
       surface="manual-image-task"
-      ariaLabel="创建生图工作"
+      ariaLabel={state.comfyUiOnly ? "ComfyUI 图片任务" : "创建生图工作"}
       layerClassName="manual-image-task-layer"
       className="image-create-dialog manual-image-task-dialog"
       onRequestClose={close}
@@ -84,12 +85,12 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
       {({ requestClose }) => (
         <>
           <SurfaceHeader
-            title="创建生图工作"
+            title={state.comfyUiOnly ? "ComfyUI 图片任务" : "创建生图工作"}
             description="设置一次图片任务，成果会直接出现在画布右键位置。"
             onClose={() => requestClose("close-button")}
           />
           <SurfaceBody className="manual-image-task-body">
-            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => { setComfyuiReady(false); updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count }); }}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 已配置服务</option></select></Field>
+            {state.comfyUiOnly ? null : <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => { setComfyuiReady(false); updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count }); }}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 已配置服务</option></select></Field>}
             {adjustment ? <p role="status">{adjustment}</p> : null}
             {draft.provider === "comfyui" ? <ComfyUiTaskFields draft={draft} update={updateDraft} projectId={state.projectId} conversationId={state.conversationId} onValidityChange={setComfyuiReady} /> : <div className="manual-image-task-controls">
               <Field label="比例">
