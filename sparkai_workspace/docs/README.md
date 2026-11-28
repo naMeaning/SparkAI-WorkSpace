@@ -1,5 +1,9 @@
 # SparkAI WorkSpace 文档索引
 
+- [Sparkvas 工作流优先重构方案（2026-11-20）](SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md)：当前首版范围、迁移与验收场景；近期交付见 [Progress](../PROGRESS.md)。
+
+- [Sparkvas 产品决策包（2026-11-16，归档）](PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)：Recipe/Skill/Tool、GitHub Registry、品牌与目标场景的长期方向，附词汇表、ADR 和审计。原 [Phase 0–8 实施计划](IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)及[交接 prompt](SPARKVAS_HANDOFF_2026-11-16.md)仅供溯源，不是当前任务或交付记录。
+
 - [SparkAPI 官网Logo统一](SPARKAPI_LOGO_2026-10-25.md)：真实官网资产来源、桌面/Windows/安装卸载图标链路及本地验证交付证据。
 
 - [日夜基础主题与界面精简实施记录](UI_SIMPLIFICATION_2026-10-24.md)：P1/P2 动作矩阵、专项与真实 UI、独立 EXE/安全安装和源码同步证据。

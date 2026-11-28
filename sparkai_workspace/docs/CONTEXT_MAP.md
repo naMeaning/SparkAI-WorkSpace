@@ -14,6 +14,10 @@
 
 `src/workspace-chrome.tsx` 保有素材轨和项目搜索。`src/main.tsx` 保有画布旁工作流入口、旧项目工具入口和成果对比动作。下方关于三视图与玻璃实验室的段落是早期导航记录。个人需求模板经 [桌面需求模板库](../desktop/requirement-library.cjs) 读取，ComfyUI 经 [独立管理入口](../src/comfyui-task-fields.tsx) 使用。
 
+## Sparkvas 长期方向归档（2026-11-16）
+
+[Sparkvas 产品决策包](PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)与[领域词汇](../GLOSSARY.md)记录 Canvas/Studio、Recipe/Skill/Tool 与 Run 的规划语义。[ADR-0001](adr/0001-canvas-first-ai-native-workflow-authoring.md)、[ADR-0002](adr/0002-brand-sparkvas.md) 和 [ADR-0003](adr/0003-github-registry-and-permissioned-tools.md)分别记录画布优先、品牌与 Registry 决策。这些资料不定义当前运行时或 IPC；主线仍按上文「Sparkvas 首版」的顺序工作流边界维护。
+
 ## 桌面品牌图标（2026-10-25）
 
 用户要求改用SparkAPI官网真实Logo；任务/实际交付状态见 [官网Logo实施记录](SPARKAPI_LOGO_2026-10-25.md) 与 [Progress](../PROGRESS.md)。`assets/windows/naimage-icon-master.png`保留官网180px透明PNG原字节，`naimage-icon-source.json`记录来源/原hash/尺寸及256帧仅格式放大。`scripts/release/generate-installer-assets.mjs`是唯一派生owner：原字节复制`public/naimage.png`供Renderer顶栏/登录/启动检查/帮助/favicon、Main `createWindowIcon()`主窗/独立Agent与WPF `BrandShell.LoadLogo()`；生成7尺寸`assets/windows/naimage.ico`供两个WPF csproj PE，并复制`build/naimage.ico`供Electron/DevLauncher、合成NSIS两BMP。`package:dir`/`package:win`与变体打包均先release:assets再Vite build，禁止dist滞后；Main无旧内嵌logo fallback。快捷方式和卸载注册DisplayIcon沿主EXE，App ID/GUID/安装与数据目录不变。官网来源及资源/PE/真实UI证据从实施记录读取，不扩展认证/更新协议。

@@ -25,6 +25,16 @@
 - 品牌安装器 `/S` 原位升级退出码 0，注册版本 1.0.9。注册目录和 7 个配置文件核对一致，已安装应用 EXE 及 `app.asar` 与本轮包一致。安装审计 `.diagnostics/sparkvas-package-source/final-install-result.json`。
 - 验收使用模拟 Agent 与图片响应。真实渠道生成、真实视频和 ComfyUI 执行质量未在本轮复测。本轮制品处于本地开发交付状态。方案见 [工作流优先重构方案](docs/SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md)。
 
+## 历史状态（2026-11-16，Sparkvas 产品决策包确认时）
+
+- 用户已确认新的产品方向：品牌改为 `Sparkvas`；画布优先，支持同一 Project 内的 `Canvas | Studio`；AI 作为 Recipe 第一作者，负责起草、修改、解释、修复和执行，用户负责审阅、锁定和授权。
+- 已确定领域模型：Skill 是不执行代码的声明式技法；Tool 是带 manifest 权限的可执行适配器；Recipe 是由 Skill/Tool 组成的可版本化 AI-native 工作流；Requirement 保留为画布内轻量单步原语；一次执行用 Recipe Run 持久化输入、版本、权限、输出和 provenance。
+- 已确定场景：电商美妆与影视剧（前期分镜/预演及短剧批量生产）共用场景/镜头/主体/连续性语义；影视剧先作为 `general` 下的 Film Skills/Recipes，不新增第五工作台。
+- 已确定分发：GitHub topic（`sparkvas-skill`、`sparkvas-recipe`、`sparkvas-tool`）→ 服务端校验 → curated Registry → 客户端安装；本期全部免费；Tool 安装/执行显示权限并显式授权；支持下架、回滚、兼容性检查和举报。
+- 已确定 UI/IA：浅/深两套基础主题、强调色、三档密度和布局构建器；既有七套玻璃主题只保留迁移兼容。Studio 与 Canvas 共享 Project/selection/TaskScope/资产/会话/Run，不复制状态。
+- 归档包含 [Sparkvas 产品决策包](docs/PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)、[竞品扫描](../artifacts/product-strategy-2026-11-16/competitive-scan.md)、[UI 审计](../artifacts/product-strategy-2026-11-16/ui-audit-archive.md)、[领域词汇](GLOSSARY.md)与三份 ADR。[原实施计划](docs/IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)与[原交接 prompt](docs/SPARKVAS_HANDOFF_2026-11-16.md)供溯源。
+- 2026-11-28：仅归档文档，不合入实验分支，也未构建、安装或发布。当前主线的首版范围以 [11 月 20 日工作流优先方案](docs/SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md)及本页顶部的开发证据为准。
+
 ## 当前开发状态（2026-10-25，SparkAPI官网Logo本地开发交付完成）
 
 - 接受：用户要求软件采用`https://sparkapi.org`真实Logo；从P1/P2最终`5f6d4d90163aecad83479b62506ccdaf32a30edb`续做branding，旧dirty和独立制品保留。本次只改资源/必要派生链路，不改应用身份、升级、设置、认证或业务。

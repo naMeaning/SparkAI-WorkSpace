@@ -21,6 +21,16 @@
 - 独立 Studio、Marketplace、布局构建器、复杂编排、电商专用流程与品牌技术身份迁移后续排期。首版范围及排期以 [工作流优先重构方案](docs/SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md) 为准。
 - 手动与 Agent 草稿、顺序运行与恢复、个人库、旧模板和项目入口、实色主题及成果对比均已实现。隔离 Electron、Main 恢复测试和本机原位安装均已验证。实际制品与边界见 [PROGRESS.md](PROGRESS.md)。
 
+## 前序规划：Sparkvas 产品方向决策包（2026-11-16，首版范围以新方案为准）
+
+- Mode：strategy。用户确认产品改名为 **Sparkvas**，定位为画布优先、AI-native 的视觉创作工作台；Canvas 是主界面，Studio 是同一 Project 内的 Recipe 编辑与执行面。
+- Outcome：Skill（声明式技法，不执行代码）→ Tool（有权限的可执行适配器）→ Recipe（可版本化工作流）的三层模型；AI 起草/修改/解释/修复并执行，用户审阅、锁定和授权。Requirement 保留为画布内轻量单步原语，Recipe Run 记录一次可复核执行并回到 Canvas。
+- Scenarios：电商美妆与影视剧（前期分镜/预演及短剧批量生产）共用场景、镜头、主体、连续性和输出槽位语义；影视剧先作为 `general` 下的 Film Skills/Recipes，不新增第五工作台。
+- Marketplace：GitHub topic → 服务端校验 → curated Registry → 客户端安装；`sparkvas-skill`、`sparkvas-recipe`、`sparkvas-tool` 三类包；本期免费，Tool 显示权限并显式授权，支持下架、回滚、兼容性检查与举报。
+- UI/IA：Canvas/Studio 同一项目状态；右侧 Agent 常驻；布局构建器只管理停靠/缩放/显隐并保存 Layout Preset；主题收敛为浅/深两套基础主题、强调色和密度设置，既有玻璃主题只保留迁移兼容。
+- Brand：可见品牌、EXE、安装器、仓库、文档、CLI/MCP 展示名和更新源迁移到 Sparkvas；保留一次旧名兼容与项目/设置/凭据迁移。域名/商标仍需正式核验。
+- 归档入口：[Sparkvas 产品决策包](docs/PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)收录[领域词汇](GLOSSARY.md)、ADR 和审计；[原实施计划](docs/IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)与[原交接 prompt](docs/SPARKVAS_HANDOFF_2026-11-16.md)只供溯源。本次仅归档文档，不引入实验分支代码或变更当前任务。
+
 ## 当前任务：采用 SparkAPI 官网 Logo（2026-10-25，本地开发交付完成）
 
 - Mode：implement。用户要求“软件图标换成网址的图标logo吧 https://sparkapi.org”；P1/P2已独立交付，不重做其范围。
